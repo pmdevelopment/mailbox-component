@@ -215,11 +215,9 @@ class RefreshMailboxCommand extends Command
         return;
     }
 
-    public function refreshOutlookMailbox($microsoftApp, $microsoftAccount, \DateTime $timestamp, OutputInterface $output)
+    public function refreshOutlookMailbox(MicrosoftApp $microsoftApp, MicrosoftAccount $microsoftAccount, \DateTime $timestamp, OutputInterface $output)
     {
         $timeSpan = $timestamp->format('Y-m-d');
-        $credentials = json_decode($microsoftAccount->getCredentials(), true);
-        $redirectEndpoint = str_replace('http', 'https', $this->router->generate('uvdesk_member_core_framework_integrations_microsoft_apps_oauth_login', [], UrlGeneratorInterface::ABSOLUTE_URL));
 
         $filters = [
             'ReceivedDateTime' => [
@@ -230,7 +228,7 @@ class RefreshMailboxCommand extends Command
 
         // Lookup id for the 'inbox' folder
         $mailboxFolderId = null;
-        $mailboxFolderCollection = $this->getOutlookMailboxFolders($credentials['access_token'], $credentials['refresh_token'], $output);
+        $mailboxFolderCollection = $this->getOutlookMailboxFolders($microsoftApp, $microsoftAccount, $output);
 
         foreach ($mailboxFolderCollection as $mailboxFolder) {
             if ($mailboxFolder['displayName'] == 'Inbox') {
@@ -240,6 +238,7 @@ class RefreshMailboxCommand extends Command
             }
         }
 
+        $credentials = json_decode($microsoftAccount->getCredentials(), true);
         $response = MicrosoftGraph\Me::messages($credentials['access_token'], $mailboxFolderId, $filters);
 
         if (!empty($response['error'])) {
@@ -305,15 +304,20 @@ class RefreshMailboxCommand extends Command
         return;
     }
 
-    private function getOutlookMailboxFolders($accessToken, $refreshToken, OutputInterface $output)
+    private function getOutlookMailboxFolders(MicrosoftApp $microsoftApp, MicrosoftAccount $microsoftAccount, OutputInterface $output): array
     {
+        $credentials = json_decode($microsoftAccount->getCredentials(), true);
+
+        $accessToken = $credentials['access_token'];
+        $refreshToken = $credentials['refresh_token'];
+
         $response = MicrosoftGraph\Me::mailFolders($accessToken);
 
-        if (!empty($response['error'])) {
-            if (!empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
+        if (false === empty($response['error'])) {
+            if (false === empty($response['error']['code']) && 'InvalidAuthenticationToken' === $response['error']['code']) {
                 $tokenResponse = $this->microsoftIntegration->refreshAccessToken($microsoftApp, $refreshToken);
 
-                if (!empty($tokenResponse['access_token'])) {
+                if (false === empty($tokenResponse['access_token'])) {
                     $microsoftAccount->setCredentials(json_encode($tokenResponse));
 
                     $this->entityManager->persist($microsoftAccount);
